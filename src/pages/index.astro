@@ -1,81 +1,231 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.astro';
+import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="Welcome to Astro.">
-	<main>
-		<h1>Welcome to <span class="text-gradient">Astro</span></h1>
-		<p class="instructions">
-			To get started, open the directory <code>src/pages</code> in your project.<br />
-			<strong>Code Challenge:</strong> Tweak the "Welcome to Astro" message above.
-		</p>
-		<ul role="list" class="link-card-grid">
-			<Card
-				href="https://docs.astro.build/"
-				title="Documentation"
-				body="Learn how Astro works and explore the official API docs."
-			/>
-			<Card
-				href="https://astro.build/integrations/"
-				title="Integrations"
-				body="Supercharge your project with new frameworks and libraries."
-			/>
-			<Card
-				href="https://astro.build/themes/"
-				title="Themes"
-				body="Explore a galaxy of community-built starter themes."
-			/>
-			<Card
-				href="https://astro.build/chat/"
-				title="Community"
-				body="Come say hi to our amazing Discord community. ❤️"
-			/>
-		</ul>
-	</main>
-</Layout>
+  <script>
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "firebase/app";
+    import { getAnalytics } from "firebase/analytics";
+    import { getStorage, getDownloadURL } from "firebase/storage";
+    // TODO: Add SDKs for Firebase products that you want to use
+    // https://firebase.google.com/docs/web/setup#available-libraries
 
-<style>
-	main {
-		margin: auto;
-		padding: 1.5rem;
-		max-width: 60ch;
-	}
-	h1 {
-		font-size: 3rem;
-		font-weight: 800;
-		margin: 0;
-	}
-	.text-gradient {
-		background-image: var(--accent-gradient);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		background-size: 400%;
-		background-position: 0%;
-	}
-	.instructions {
-		line-height: 1.6;
-		margin: 1rem 0;
-		border: 1px solid rgba(var(--accent), 25%);
-		background-color: white;
-		padding: 1rem;
-		border-radius: 0.4rem;
-	}
-	.instructions code {
-		font-size: 0.875em;
-		font-weight: bold;
-		background: rgba(var(--accent), 12%);
-		color: rgb(var(--accent));
-		border-radius: 4px;
-		padding: 0.3em 0.45em;
-	}
-	.instructions strong {
-		color: rgb(var(--accent));
-	}
-	.link-card-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(24ch, 1fr));
-		gap: 1rem;
-		padding: 0;
-	}
-</style>
+    import { ref, uploadBytes } from "firebase/storage";
+
+    // Initialize Firebase
+    export const app = initializeApp({
+      apiKey: import.meta.env.PUBLIC_ASTRO_API_KEY,
+      projectId: import.meta.env.PUBLIC_ASTRO_PROJECT_ID,
+      storageBucket: import.meta.env.PUBLIC_ASTRO_STORAGE_BUCKET,
+      appId: import.meta.env.PUBLIC_ASTRO_APP_ID,
+    });
+
+    export const analytics = getAnalytics(app);
+    export const storage = getStorage(app);
+
+    // import {analytics,app,storage} from '../components/Card.astro';
+    // import { getStorage, ref, uploadBytes } from "firebase/storage";
+
+    // // create a unique id for the file
+    let id = Math.random() / Date.now();
+
+    // const storage = getStorage();
+    const storageRef = ref(storage, `images/${id}.mp3`);
+    const metadata = {
+      contentType: "audio/mp3",
+    };
+
+    // get the file and pass it to the function
+    document.querySelector("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      // get the file
+      const file = document.querySelector("form").file.files[0];
+
+      // -----------------------------------
+      // hide fileAndButton div and show loading div
+      document.getElementById("fileAndButton").style.display = "none";
+      document.getElementById("loading").style.display = "block";
+      // ---------------------------
+      try {
+        // Save the file to firebase & get the url
+        const snapshot = await uploadBytes(storageRef, file, metadata);
+        const url = await getDownloadURL(
+          ref(storage, snapshot.metadata.fullPath)
+        );
+
+        // fetch to https://api.assemblyai.com/v2 with header aplication json
+        const response = await fetch(
+          "https://api.assemblyai.com/v2/transcript",
+          {
+            method: "POST",
+            headers: {
+              Authorization: import.meta.env.PUBLIC_AUTHORIZATION,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              audio_url: url,
+            }),
+          }
+        );
+
+        // get the data from the response
+        const data = await response.json();
+        // get the id from the data
+        const id = data.id;
+
+        let transcript: any = { status: "Pending" };
+        // fetch the transcript with the id
+
+        // set interval to fetch the transcript every 15 seconds and stop when the status is completed
+        const interval = setInterval(() => {
+          fetchTranscript(id).then((data) => {
+            if (data.status === "completed") {
+              clearInterval(interval);
+              // hide fileAndButton div and show loading div
+              document.getElementById("fileAndButton").style.display = "block";
+              document.getElementById("loading").style.display = "none";
+            }
+          });
+        }, 15000);
+
+        // setTimeout(() => fetchTranscript(id), 5000);
+      } catch {
+        console.log("error");
+        // hide fileAndButton div and show loading div
+        document.getElementById("fileAndButton").style.display = "block";
+        document.getElementById("loading").style.display = "none";
+      }
+    });
+
+    const fetchTranscript = async (id) => {
+      return fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
+        method: "GET",
+        headers: {
+          Authorization: import.meta.env.PUBLIC_AUTHORIZATION,
+        },
+      })
+        .then((response) => {
+          return response.json();
+        })
+        .then((data) => {
+          if (data.status !== "completed") return;
+          //if the data.status is not completed wait 5 seconds and fetch again
+          console.log(data);
+
+          var i = 0;
+          var speed = 20;
+          // add the text to the textarea
+          var txt = data.text;
+          function typeWriter() {
+            if (i < txt.length) {
+              document.getElementById("content").innerHTML += txt.charAt(i);
+              i++;
+              setTimeout(typeWriter, speed);
+            }
+          }
+          typeWriter();
+          return data;
+        });
+    };
+  </script>
+
+  <main>
+    <!-- Return for with title input filed and textarea using milligram css -->
+    <form>
+      <!-- cneter the form -->
+      <div class="row">
+        <div class="column">
+          <h1 class="">MP3 To Text</h1>
+
+          <!-- create 2 columns -->
+          <div id="fileAndButton" class="row">
+            <div class="column">
+              <fieldset>
+                <input type="file" name="file" id="file" placeholder="file" />
+              </fieldset>
+            </div>
+            <div class="column">
+              <fieldset>
+                <button type="submit">Submit</button>
+              </fieldset>
+            </div>
+          </div>
+
+          <div id="loading" class="row" style="display: none;">
+            <div class="column">
+              <span> Loading...</span>
+            </div>
+          </div>
+
+          <fieldset>
+            <textarea name="content" id="content" placeholder="Content" readonly
+            ></textarea>
+          </fieldset>
+        </div>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    // execute the function when the form is submitted
+    // document.querySelector('form').addEventListener('submit', (e) => {
+    // 	e.preventDefault();
+    // 	// get the file
+    // 	const file =document.querySelector('form').file.files[0];
+    // 	// get text area value
+    // 	const content = document.querySelector('form').content.value;
+
+    // 	// create a new form data
+
+    // on submit get the file and save it into firebase storage
+    document.querySelector("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      // get the file
+      const file = document.querySelector("form").file.files[0];
+    });
+
+    // create a new form data
+
+    // let file = (<HTMLInputElement>document.getElementById('file')).files[0];
+
+    // fetch('/api.json', {
+    // 	method: 'POST',
+    // 	body: JSON.stringify({
+    // 		file: file,
+
+    // 	}),
+    // 	headers: {
+    // 		'Content-Type': 'multipart/form-data'
+    // 	}
+
+    // })
+  </script>
+
+  <!-- center elements in the body && align vertical -->
+  <style>
+    /* align all contentes to the middle */
+    main {
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    * {
+      text-align: center;
+    }
+    #content {
+      text-align: left;
+      /* first letter in mayus */
+      text-transform: capitalize;
+    }
+
+    /* size of the textarea is the 25% of the screen */
+    textarea {
+      height: 50vh;
+      width: 50vw;
+    }
+  </style>
+</Layout>
